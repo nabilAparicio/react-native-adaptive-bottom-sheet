@@ -20,7 +20,7 @@ export default (maxHeigth?: number) => {
       borderTopRightRadius: 16,
       borderColor: "#D9D9D94D",
       overflow: "hidden",
-      // Estilos adicionales para el tema oscuro
+      // Additional styles for dark theme
       ...(isDark && {
         borderTopWidth: 1,
         borderLeftWidth: 1,

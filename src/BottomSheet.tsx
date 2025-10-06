@@ -31,12 +31,12 @@ const OVERDRAG = 20;
 export interface BottomSheetProps {
   children: ReactNode;
   bottomSheetInstance: BottomSheetHook;
-  maxHeight?: number; // Límite superior por props
-  fixedHeight?: number; // Altura fija (ignora medición)
+  maxHeight?: number; // Upper limit by props
+  fixedHeight?: number; // Fixed height (ignores measurement)
   headerComponent?: ReactNode;
   hideCloseButton?: boolean;
   disableBackdropDismiss?: boolean;
-  avoidKeyboard?: boolean; // Ajuste teclado
+  avoidKeyboard?: boolean; // Keyboard adjustment
   onDismiss?: Function;
 }
 
@@ -52,37 +52,37 @@ function BottomSheet({
   onDismiss,
 }: BottomSheetProps) {
   const theme = defaultTheme;
-  // Habilita el gesto solo cuando terminó la apertura
+  // Enable gesture only when opening is complete
   const isFullOpened = useRef(false);
 
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard({ isStatusBarTranslucentAndroid: true });
 
-  // Estado UI
-  const isClosing = useSharedValue(false); // cierre en curso
-  const isOpenSV = useSharedValue(0); // 0 cerrado, 1 abierto
-  const phase = useSharedValue<0 | 1 | 2>(0); // 0 idle, 1 abriendo, 2 abierto
+  // UI State
+  const isClosing = useSharedValue(false); // closing in progress
+  const isOpenSV = useSharedValue(0); // 0 closed, 1 open
+  const phase = useSharedValue<0 | 1 | 2>(0); // 0 idle, 1 opening, 2 open
 
-  // Alturas
+  // Heights
   const screenHeight = useSharedValue(Dimensions.get("window").height);
-  const capHeight = useSharedValue(0); // tope del sheet
-  const contentHeight = useSharedValue(0); // medido por layout
-  const height = useSharedValue(fixedHeight || 0); // altura efectiva
+  const capHeight = useSharedValue(0); // sheet cap
+  const contentHeight = useSharedValue(0); // measured by layout
+  const height = useSharedValue(fixedHeight || 0); // effective height
 
-  // Animación
-  const offset = useSharedValue(0); // translateY actual (0 = abierto)
-  const containerOpacity = useSharedValue(0); // visibilidad del contenedor (evita flash)
-  const backdropOpacity = useSharedValue(0); // opacidad del backdrop
+  // Animation
+  const offset = useSharedValue(0); // current translateY (0 = open)
+  const containerOpacity = useSharedValue(0); // container visibility (prevents flash)
+  const backdropOpacity = useSharedValue(0); // backdrop opacity
 
   const styles = useStyles(maxHeight);
 
-  // Cerrar desde JS. El desplazamiento final lo maneja el gesto o el `exiting`.
+  // Close from JS. Final movement is handled by gesture or `exiting`.
   const CloseSheet = () => {
     isClosing.value = true;
     bottomSheetInstance.closeSheet(onDismiss);
   };
 
-  // Calcular tope y altura efectiva en UI para evitar carreras JS↔UI
+  // Calculate cap and effective height in UI to avoid JS↔UI races
   useDerivedValue(() => {
     const maxByScreen = screenHeight.value - insets.top - 90;
     const propMax = maxHeight ?? Number.POSITIVE_INFINITY;
@@ -97,7 +97,7 @@ function BottomSheet({
     if (height.value !== desired) height.value = desired;
   });
 
-  // Apertura manual: primer frame fuera de pantalla y opacidad 0, luego animar a visible
+  // Manual opening: first frame off-screen and opacity 0, then animate to visible
   useDerivedValue(() => {
     const wantsOpen = isOpenSV.value === 1 && phase.value === 0;
     if (!wantsOpen) return;
@@ -124,7 +124,7 @@ function BottomSheet({
     backdropOpacity.value = withTiming(1, { duration: 250 });
   });
 
-  // Gesto de arrastre para cerrar
+  // Drag gesture to close
   const pan = Gesture.Pan()
     .onChange((event) => {
       if (!isFullOpened.current) return;
@@ -150,11 +150,11 @@ function BottomSheet({
       const threshold = Math.max(24, Math.min(80, range / 6));
 
       if (offset.value < threshold) {
-        // Restaurar a abierto
+        // Restore to open
         offset.value = withSpring(0, { damping: 15, mass: 0.9 });
         backdropOpacity.value = withTiming(1, { duration: 150 });
       } else {
-        // Animar hasta la altura del sheet y cerrar al completar
+        // Animate to sheet height and close on completion
         offset.value = withTiming(height.value, { duration: 200 }, () => {
           scheduleOnRN(CloseSheet);
         });
@@ -162,25 +162,25 @@ function BottomSheet({
       }
     });
 
-  // Estilo animado del sheet
+  // Animated sheet style
   const translateY = useAnimatedStyle(() => {
     const k = avoidKeyboard ? keyboard.height.value : 0;
     const tY = offset.value - k;
     return { transform: [{ translateY: tY }], opacity: containerOpacity.value };
   });
 
-  // Estilo animado del backdrop
+  // Animated backdrop style
   const backdropOpacityStyle = useAnimatedStyle(() => ({
     opacity: backdropOpacity.value,
   }));
 
-  // Medición del contenido
+  // Content measurement
   const onLayoutHandler = (e: LayoutChangeEvent) => {
     if (fixedHeight) return;
     contentHeight.value = e.nativeEvent.layout.height;
   };
 
-  // Exiting del backdrop al desmontar
+  // Backdrop exiting on unmount
   const backdropExiting = () => {
     "worklet";
     const animations = {
@@ -192,11 +192,11 @@ function BottomSheet({
     return { initialValues, animations };
   };
 
-  // Exiting del sheet: partir desde el `offset` actual para evitar “rebote”
+  // Sheet exiting: start from current `offset` to avoid "bounce"
   const sheetExiting = () => {
     "worklet";
-    const start = offset.value; // posición actual al iniciar unmount
-    const exitTo = height.value; // destino final de salida
+    const start = offset.value; // current position when starting unmount
+    const exitTo = height.value; // final exit destination
     const needsMove = Math.abs(exitTo - start) > 0.5;
 
     const animations = {
@@ -206,7 +206,7 @@ function BottomSheet({
       opacity: withTiming(1),
     };
 
-    // Iniciar desde donde realmente está el sheet, no desde 0
+    // Start from where the sheet actually is, not from 0
     const initialValues = {
       transform: [{ translateY: start }],
       opacity: containerOpacity.value,
@@ -224,7 +224,7 @@ function BottomSheet({
     return { initialValues, animations, callback };
   };
 
-  // Sincroniza isOpen con el hook controlador
+  // Synchronizes isOpen with controller hook
   useEffect(() => {
     isOpenSV.value = bottomSheetInstance?.isOpen ? 1 : 0;
     if (bottomSheetInstance?.isOpen) {
@@ -236,14 +236,14 @@ function BottomSheet({
     <>
       {bottomSheetInstance?.isOpen && (
         <Portal name={bottomSheetInstance.instanceID}>
-          {/* Backdrop clickeable. Sin `entering`; apertura manual controla opacidad. */}
+          {/* Clickable backdrop. No `entering`; manual opening controls opacity. */}
           <AnimatedPressable
             style={[styles.backdrop, backdropOpacityStyle]}
             onPress={disableBackdropDismiss ? undefined : CloseSheet}
             exiting={backdropExiting}
           />
 
-          {/* Contenedor del sheet. Sin `entering`; apertura manual controla offset y opacidad. */}
+          {/* Sheet container. No `entering`; manual opening controls offset and opacity. */}
           <Animated.View
             style={[styles.sheet, translateY]}
             exiting={sheetExiting}
