@@ -1,13 +1,48 @@
 {
   "name": "react-native-adaptive-bottom-sheet",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.1.0",
+  "description": "A flexible, gesture-driven adaptive bottom sheet for React Native with keyboard avoidance and smooth animations",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "jest",
+    "lint": "eslint src/**/*.{ts,tsx}",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "keywords": [
+    "react-native",
+    "bottom-sheet",
+    "adaptive",
+    "modal",
+    "gesture",
+    "animation",
+    "reanimated"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=19.1.0",
+    "react-native": ">=0.81.4",
+    "react-native-gesture-handler": ">=2.28.0",
+    "react-native-reanimated": ">=4.1.2",
+    "react-native-safe-area-context": ">=5.6.0",
+    "react-native-worklets": ">=0.5.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.5",
+    "@types/react": ">=18.0.0",
+    "@types/react-native": ">=0.72.0",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "react-native-svg": ">=15.13.0"
+  }
 }
