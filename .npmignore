@@ -1,0 +1,57 @@
+# Source files (we publish dist/ instead)
+src/
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+coverage/
+
+# Build artifacts
+*.tsbuildinfo
+tsconfig.json
+
+# Development dependencies
+node_modules/
+
+# Lock files (users should use their own)
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.*
+
+# Documentation source (if any)
+docs/
+
+# Example apps (if any)
+example/
+examples/
+
+# Biome config (internal linting)
+biome.json
