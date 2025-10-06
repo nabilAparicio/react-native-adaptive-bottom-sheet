@@ -35,23 +35,39 @@ Make sure to follow the setup instructions for each:
 - [react-native-reanimated](https://docs.swmansion.com/react-native-reanimated/docs/fundamentals/getting-started/)
 - [react-native-safe-area-context](https://github.com/th3rdwave/react-native-safe-area-context)
 
+**Important:** Your app must have `GestureHandlerRootView` and `SafeAreaProvider` set up at the root level.
+
 ## Usage
 
 ### Basic Setup
 
-Wrap your app with the `AdaptiveBottomSheetProvider`:
+First, ensure your app has the required providers at the root level:
 
 ```tsx
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AdaptiveBottomSheetProvider } from 'react-native-adaptive-bottom-sheet';
 
 export default function App() {
   return (
-    <AdaptiveBottomSheetProvider>
-      {/* Your app content */}
-    </AdaptiveBottomSheetProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AdaptiveBottomSheetProvider>
+          {/* Your app content */}
+        </AdaptiveBottomSheetProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 ```
+
+**Note:** If you already have `GestureHandlerRootView` and `SafeAreaProvider` in your app (which is common), you can just add `AdaptiveBottomSheetProvider` inside them.
+
+### Automatic Dependency Validation
+
+The library automatically validates that all required peer dependencies are installed and properly configured. If any dependency is missing or not configured correctly, you'll receive a helpful error message with instructions on how to fix it.
+
+This ensures you don't run into runtime errors due to missing dependencies!
 
 ### Basic Example
 
@@ -220,13 +236,13 @@ This library is written in TypeScript and includes complete type definitions.
 
 ## Requirements
 
-- React Native >= 0.81.4
-- React >= 19.1.0
-- react-native-gesture-handler >= 2.28.0
-- react-native-reanimated >= 4.1.2
-- react-native-safe-area-context >= 5.6.0
-- react-native-worklets >= 0.5.1
-- react-native-svg >= 15.13.0
+- React Native >= 0.64.0
+- React >= 16.8.0
+- react-native-gesture-handler >= 2.0.0
+- react-native-reanimated >= 3.0.0
+- react-native-safe-area-context >= 4.0.0
+- react-native-worklets >= 0.5.0
+- react-native-svg >= 13.0.0
 
 ## Contributing
 
