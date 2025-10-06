@@ -1,7 +1,7 @@
 {
   "name": "react-native-adaptive-bottom-sheet",
   "version": "0.1.0",
-  "description": "A flexible, gesture-driven adaptive bottom sheet for React Native with keyboard avoidance and smooth animations",
+  "description": "A flexible self-measuring, gesture-driven adaptive bottom sheet for React Native with keyboard avoidance and smooth animations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
