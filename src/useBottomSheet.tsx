@@ -1,10 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { IdGenerator } from "./utils";
 
 export default function useBottomSheet(initialValue?: boolean) {
   const [isOpen, setValue] = useState(initialValue);
 
-  const instanceID = IdGenerator(6);
+  const instanceID = useMemo(() => IdGenerator(6), []);
 
   const toggleSheet = useCallback((callback?: Function) => {
     setValue((prev) => !prev);
