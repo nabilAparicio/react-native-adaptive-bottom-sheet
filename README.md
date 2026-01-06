@@ -191,6 +191,68 @@ const styles = StyleSheet.create({
 </AdaptiveBottomSheet>
 ```
 
+## Style Extension Safety
+
+`AdaptiveBottomSheet` supports style overrides via the `styles` prop (by slot). These overrides are merged with the internal defaults.
+
+### Allowed vs reserved style keys
+
+Some style keys are **reserved** because they are controlled by internal animations/layout. Overriding them can break transitions or gestures.
+
+- **Reserved keys (sheet)**: `transform`, `opacity`, `position`, `zIndex`, `bottom`, `top`, `left`, `right`
+- **Reserved keys (backdrop)**: `opacity`, `position`, `zIndex`, `top`, `left`, `right`, `bottom`
+
+If you override any reserved keys, the library will emit a **development warning** indicating the slot and the forbidden keys detected.
+
+### Good example
+
+```tsx
+<AdaptiveBottomSheet
+  bottomSheetInstance={bottomSheet}
+  styles={{
+    sheet: { backgroundColor: '#111', borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+    backdrop: { backgroundColor: 'rgba(0,0,0,0.6)' },
+  }}
+/>
+```
+
+### Bad example (will warn in dev)
+
+```tsx
+<AdaptiveBottomSheet
+  bottomSheetInstance={bottomSheet}
+  styles={{
+    sheet: { position: 'relative', transform: [{ translateY: 999 }] },
+  }}
+/>
+```
+
+## Responsive Mode (Tablet Dialog)
+
+You can make the component responsive by switching its presentation based on screen width.
+
+- **Phones**: behaves like the current bottom sheet.
+- **Tablets**: renders as a centered dialog (same content/API, different presentation).
+
+### Props
+
+- `mode`: `'bottomSheet' | 'dialog' | 'auto'` (default: `auto`)
+- `tabletBreakpoint`: `number` (default: `768`)
+- `dialogDragToClose`: `boolean` (default: `true`)
+
+### Example
+
+```tsx
+<AdaptiveBottomSheet
+  bottomSheetInstance={bottomSheet}
+  mode="auto"
+  tabletBreakpoint={768}
+  dialogDragToClose={false}
+>
+  <YourContent />
+</AdaptiveBottomSheet>
+```
+
 ## API Reference
 
 ### `useBottomSheet(initialValue?: boolean)`
@@ -217,6 +279,13 @@ Hook that returns a controller object for managing the bottom sheet.
 | `disableBackdropDismiss` | `boolean` | `false` | Prevent closing on backdrop press |
 | `avoidKeyboard` | `boolean` | `false` | Enable keyboard avoidance |
 | `onDismiss` | `Function` | `undefined` | Callback when sheet is dismissed |
+| `darkMode` | `boolean` | `false` | Enables dark theme defaults |
+| `styles` | `BottomSheetStyleOverrides` | `undefined` | Style overrides by slot (`backdrop`, `sheet`, `header`, `content`, `closeButton`) |
+| `renderCloseIcon` | `(params: { isDark: boolean }) => ReactNode` | `undefined` | Custom close icon renderer |
+| `closeButtonProps` | `Omit<TouchableOpacityProps, 'onPress' | 'style'>` | `undefined` | Props forwarded to the close button |
+| `mode` | `'bottomSheet' \| 'dialog' \| 'auto'` | `auto` | Presentation mode (`auto` switches at `tabletBreakpoint`) |
+| `tabletBreakpoint` | `number` | `768` | Width breakpoint for `auto` mode |
+| `dialogDragToClose` | `boolean` | `true` | Enables drag-to-close gesture in dialog mode |
 
 ### `AdaptiveBottomSheetProvider`
 

@@ -132,8 +132,48 @@ export default function DependencyValidator({
     }
   }, [safeAreaError]);
 
-  if (safeAreaError) {
-    return null; // Error will be thrown in useEffect
+  //validate react-native-safe-area-context
+  try {
+    // This will throw if SafeAreaProvider is not in the tree
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useSafeAreaInsets();
+  } catch (error) {
+    console.error(
+      "\n❌ AdaptiveBottomSheetProvider Error:\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "react-native-safe-area-context is not in the tree.\n\n" +
+        "Install it by running:\n\n" +
+        "npm install react-native-safe-area-context\n" +
+        "# or\n" +
+        "yarn add react-native-safe-area-context\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    );
+
+    throw new Error(
+      "AdaptiveBottomSheetProvider requires react-native-safe-area-context. " +
+        "Please install it. See console for details."
+    );
+  }
+
+  // validate react-native-svg
+  try {
+    require("react-native-svg");
+  } catch (error) {
+    console.error(
+      "\n❌ AdaptiveBottomSheetProvider Error:\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "react-native-svg is not installed.\n\n" +
+        "Install it by running:\n\n" +
+        "npm install react-native-svg\n" +
+        "# or\n" +
+        "yarn add react-native-svg\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    );
+
+    throw new Error(
+      "AdaptiveBottomSheetProvider requires react-native-svg. " +
+        "Please install it. See console for details."
+    );
   }
 
   return <>{children}</>;

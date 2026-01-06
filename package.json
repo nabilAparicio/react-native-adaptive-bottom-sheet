@@ -11,7 +11,9 @@
     "LICENSE"
   ],
   "scripts": {
+    "clean": "rm -rf dist",
     "build": "tsc",
+    "dev": "npm run clean && tsc -w --preserveWatchOutput",
     "prepare": "npm run build",
     "test": "jest",
     "lint": "eslint src/**/*.{ts,tsx}",
