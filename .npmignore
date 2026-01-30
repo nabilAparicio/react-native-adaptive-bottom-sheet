@@ -22,7 +22,6 @@ tsconfig.json
 node_modules/
 
 # Lock files (users should use their own)
-pnpm-lock.yaml
 package-lock.json
 yarn.lock
 

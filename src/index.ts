@@ -5,4 +5,5 @@ export type {
   BottomSheetProps,
   BottomSheetStyleOverrides,
   PresentationMode,
+  SidebarPosition,
 } from "./types";

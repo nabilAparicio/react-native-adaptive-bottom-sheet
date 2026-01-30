@@ -20,6 +20,8 @@ const RESERVED_STYLE_KEYS: Record<SlotName, ReadonlyArray<string>> = {
   header: [],
   content: [],
   closeButton: [],
+  // Sidebar container - used for positioning
+  sidebarContainer: ["position", "zIndex", "top", "left", "right", "bottom", "flexDirection", "justifyContent"],
 };
 
 const warned = new Set<string>();

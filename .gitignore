@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-pnpm-lock.yaml
 package-lock.json
 yarn.lock
 
@@ -38,3 +37,9 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Example app
+example/node_modules/
+example/.expo/
+example/ios/
+example/android/

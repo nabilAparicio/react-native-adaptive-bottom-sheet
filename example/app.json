@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "a36073db-536e-4e9d-96f7-fd585adc80ee"
+      }
+    },
+    "android": {
+      "package": "com.orlando_nabil.bottomsheetexample"
+    }
+  }
+}

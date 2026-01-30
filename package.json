@@ -1,6 +1,6 @@
 {
   "name": "react-native-adaptive-bottom-sheet",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A flexible self-measuring, gesture-driven adaptive bottom sheet for React Native with keyboard avoidance and smooth animations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,7 +17,10 @@
     "prepare": "npm run build",
     "test": "jest",
     "lint": "eslint src/**/*.{ts,tsx}",
-    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "example": "cd example && npx expo start",
+    "example:ios": "cd example && npx expo start --ios",
+    "example:android": "cd example && npx expo start --android"
   },
   "keywords": [
     "react-native",
