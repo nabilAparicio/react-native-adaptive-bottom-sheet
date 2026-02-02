@@ -13,6 +13,8 @@ interface BottomSheetStylesProps {
   sidebarWidth?: number;
   sidebarMinWidth?: number;
   sidebarMaxWidth?: number;
+  // Safe area
+  disableSafeArea?: boolean;
 }
 
 // Default sidebar dimensions
@@ -28,10 +30,14 @@ export default ({
   sidebarWidth,
   sidebarMinWidth = DEFAULT_SIDEBAR_MIN_WIDTH,
   sidebarMaxWidth = DEFAULT_SIDEBAR_MAX_WIDTH,
+  disableSafeArea = false,
 }: BottomSheetStylesProps) => {
-  const insets = useSafeAreaInsets();
+  const rawInsets = useSafeAreaInsets();
+  const insets = disableSafeArea
+    ? { top: 0, bottom: 0, left: 0, right: 0 }
+    : rawInsets;
   const screenWidth = Dimensions.get("window").width;
-  const screenHeight = Dimensions.get("window").height;
+  const screenHeight = Dimensions.get(isSidebar ? "screen" : "window").height;
   const insetsBottom = insets.bottom;
   const theme = defaultTheme(isDark);
   const { background, border, backdrop } = theme;

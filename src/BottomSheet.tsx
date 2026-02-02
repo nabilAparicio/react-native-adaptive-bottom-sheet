@@ -22,7 +22,7 @@ import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Close from "./assets/CloseIcon";
 import useStyles from "./BottomSheet.styles";
-import type { BottomSheetProps } from "./types";
+import type { BottomSheetProps, InternalBottomSheetProps } from "./types";
 import { Portal, useDeviceMode, validateStyleOverrides } from "./utils";
 
 // Animated components
@@ -32,30 +32,34 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const OVERDRAG = 20; // Maximum overdrag distance for pan gestures
 const SIDEBAR_OVERDRAG = 30; // Maximum overdrag distance for sidebar pan gestures
 
-function BottomSheet({
-  children,
-  bottomSheetInstance,
-  fixedHeight,
-  maxHeight,
-  headerComponent,
-  hideCloseButton,
-  avoidKeyboard = false,
-  disableBackdropDismiss,
-  darkMode = false,
-  onDismiss,
-  styles: stylesOverride,
-  renderCloseIcon,
-  closeButtonProps,
-  mode = "auto",
-  tabletBreakpoint = 768,
-  dialogDragToClose = true,
-  // Sidebar props
-  sidebarPosition = "left",
-  sidebarWidth,
-  sidebarMinWidth = 280,
-  sidebarMaxWidth = 400,
-  sidebarDragToClose = true,
-}: BottomSheetProps) {
+function BottomSheet(props: BottomSheetProps) {
+  // Cast to internal type for implementation - public API uses discriminated union
+  const {
+    children,
+    bottomSheetInstance,
+    fixedHeight,
+    maxHeight,
+    headerComponent,
+    hideCloseButton,
+    avoidKeyboard = false,
+    disableBackdropDismiss,
+    darkMode = false,
+    onDismiss,
+    styles: stylesOverride,
+    renderCloseIcon,
+    closeButtonProps,
+    mode = "auto",
+    tabletBreakpoint = 768,
+    dialogDragToClose = true,
+    // Sidebar props
+    sidebarPosition = "left",
+    sidebarWidth,
+    sidebarMinWidth = 280,
+    sidebarMaxWidth = 400,
+    sidebarDragToClose = true,
+    // Safe area
+    disableSafeArea = false,
+  } = props as InternalBottomSheetProps;
   // Refs
   const isFullOpened = useRef(false); // Tracks if sheet is fully opened and interactive
 
@@ -98,6 +102,7 @@ function BottomSheet({
     sidebarWidth,
     sidebarMinWidth,
     sidebarMaxWidth,
+    disableSafeArea,
   });
 
   // Closes the bottom sheet with animation
@@ -108,7 +113,8 @@ function BottomSheet({
 
   // Calculate and update sheet height constraints
   useDerivedValue(() => {
-    const maxByScreen = screenHeight.value - insets.top - 90; // Account for status bar and safe area
+    const safeTop = disableSafeArea ? 0 : insets.top;
+    const maxByScreen = screenHeight.value - safeTop - 90; // Account for status bar and safe area
     const propMax = maxHeight ?? Number.POSITIVE_INFINITY;
 
     const nextCap = Math.min(propMax, maxByScreen);
@@ -562,7 +568,11 @@ function BottomSheet({
           pointerEvents="box-none"
         >
           <Animated.View
-            style={[base.sidebarSheet, sidebarAnimatedStyle, stylesOverride?.sheet]}
+            style={[
+              base.sidebarSheet,
+              sidebarAnimatedStyle,
+              stylesOverride?.sheet,
+            ]}
             exiting={sidebarExiting}
             onLayout={onSidebarLayoutHandler}
           >
