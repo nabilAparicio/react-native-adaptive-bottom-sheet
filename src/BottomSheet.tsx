@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import {
   Dimensions,
   LayoutChangeEvent,
@@ -11,29 +11,41 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
   interpolate,
+  runOnJS,
   useAnimatedKeyboard,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
   withSpring,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
-import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Close from "./assets/CloseIcon";
 import useStyles from "./BottomSheet.styles";
 import type { BottomSheetProps, InternalBottomSheetProps } from "./types";
 import { Portal, useDeviceMode, validateStyleOverrides } from "./utils";
 
-// Animated components
+// Animated components - created once outside component
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // Constants
-const OVERDRAG = 20; // Maximum overdrag distance for pan gestures
-const SIDEBAR_OVERDRAG = 30; // Maximum overdrag distance for sidebar pan gestures
+const OVERDRAG = 20;
+const SIDEBAR_OVERDRAG = 30;
+
+// Optimized spring configs - reduced mass for faster animations
+const SPRING_CONFIG_BOTTOM_SHEET = { stiffness: 500, damping: 50, mass: 1.2 };
+const SPRING_CONFIG_DIALOG = { stiffness: 400, damping: 40, mass: 1 };
+const SPRING_CONFIG_SIDEBAR = { stiffness: 450, damping: 45, mass: 1 };
+const SPRING_CONFIG_SNAP_BACK = { damping: 20, stiffness: 400 };
+
+// Timing configs
+const TIMING_BACKDROP_IN = { duration: 200 };
+const TIMING_BACKDROP_OUT = { duration: 180 };
+const TIMING_CLOSE = { duration: 180 };
 
 function BottomSheet(props: BottomSheetProps) {
-  // Cast to internal type for implementation - public API uses discriminated union
   const {
     children,
     bottomSheetInstance,
@@ -51,17 +63,16 @@ function BottomSheet(props: BottomSheetProps) {
     mode = "auto",
     tabletBreakpoint = 768,
     dialogDragToClose = true,
-    // Sidebar props
     sidebarPosition = "left",
     sidebarWidth,
     sidebarMinWidth = 280,
     sidebarMaxWidth = 400,
     sidebarDragToClose = true,
-    // Safe area
     disableSafeArea = false,
   } = props as InternalBottomSheetProps;
-  // Refs
-  const isFullOpened = useRef(false); // Tracks if sheet is fully opened and interactive
+
+  // Use SharedValue instead of useRef for worklet-safe access
+  const isFullOpened = useSharedValue(false);
 
   // Hooks
   const insets = useSafeAreaInsets();
@@ -70,26 +81,26 @@ function BottomSheet(props: BottomSheetProps) {
 
   // Animation phases: 0 = closed, 1 = animating, 2 = opened
   const isClosing = useSharedValue(false);
-  const isOpenSV = useSharedValue(0); // 0 = closed, 1 = open
-  const phase = useSharedValue<0 | 1 | 2>(0); // Animation lifecycle phase
+  const isOpenSV = useSharedValue<0 | 1>(0);
+  const phase = useSharedValue<0 | 1 | 2>(0);
 
   // Dimensions and layout values
   const screenHeight = useSharedValue(Dimensions.get("window").height);
   const screenWidth = useSharedValue(Dimensions.get("window").width);
-  const capHeight = useSharedValue(0); // Maximum allowed height
-  const contentHeight = useSharedValue(0); // Measured content height
-  const height = useSharedValue(fixedHeight || 0); // Final sheet height
+  const contentHeight = useSharedValue(0);
+  const height = useSharedValue(fixedHeight || 0);
 
   // Sidebar-specific values
-  const measuredSidebarWidth = useSharedValue(sidebarWidth || sidebarMinWidth); // Measured or configured sidebar width
-  const sidebarOffsetX = useSharedValue(0); // Horizontal offset for sidebar position
+  const measuredSidebarWidth = useSharedValue(sidebarWidth || sidebarMinWidth);
+  const sidebarOffsetX = useSharedValue(0);
 
-  // Animation values for sheet positioning and appearance
-  const offset = useSharedValue(0); // Vertical offset for sheet position
-  const scale = useSharedValue(1); // Scale transform for dialog mode
-  const containerOpacity = useSharedValue(0); // Sheet opacity
-  const backdropOpacity = useSharedValue(0); // Backdrop opacity
-  const presentationSV = useSharedValue<0 | 1 | 2>(0); // 0: bottomSheet, 1: dialog, 2: sidebar
+  // Animation values
+  const offset = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const containerOpacity = useSharedValue(0);
+  const backdropOpacity = useSharedValue(0);
+  const presentationSV = useSharedValue<0 | 1 | 2>(0);
+
   const isDialog = presentationMode === "dialog";
   const isSidebar = presentationMode === "sidebar";
 
@@ -105,481 +116,488 @@ function BottomSheet(props: BottomSheetProps) {
     disableSafeArea,
   });
 
-  // Closes the bottom sheet with animation
-  const CloseSheet = () => {
-    isClosing.value = true;
+  // Memoized safe top value
+  const safeTop = useMemo(
+    () => (disableSafeArea ? 0 : insets.top),
+    [disableSafeArea, insets.top]
+  );
+
+  // Memoized callbacks to avoid recreation on every render
+  const setStatusOpening = useCallback(
+    () => bottomSheetInstance.setStatus("opening"),
+    [bottomSheetInstance]
+  );
+  const setStatusOpen = useCallback(
+    () => bottomSheetInstance.setStatus("open"),
+    [bottomSheetInstance]
+  );
+  const setStatusClosed = useCallback(
+    () => bottomSheetInstance.setStatus("closed"),
+    [bottomSheetInstance]
+  );
+
+  // Close sheet handler - memoized
+  const closeSheet = useCallback(() => {
     bottomSheetInstance.setStatus("closing");
     bottomSheetInstance.closeSheet(onDismiss);
-  };
+  }, [bottomSheetInstance, onDismiss]);
 
-  // Status update callbacks - defined in JS scope for use with scheduleOnRN
-  const setStatusOpening = () => bottomSheetInstance.setStatus("opening");
-  const setStatusOpen = () => bottomSheetInstance.setStatus("open");
-  const setStatusClosed = () => bottomSheetInstance.setStatus("closed");
-
-  // Calculate and update sheet height constraints
-  useDerivedValue(() => {
-    const safeTop = disableSafeArea ? 0 : insets.top;
-    const maxByScreen = screenHeight.value - safeTop - 90; // Account for status bar and safe area
+  // Derived value for maximum allowed height (pure - no side effects)
+  const capHeight = useDerivedValue(() => {
+    const maxByScreen = screenHeight.get() - safeTop - 90;
     const propMax = maxHeight ?? Number.POSITIVE_INFINITY;
-
-    const nextCap = Math.min(propMax, maxByScreen);
-    if (capHeight.value !== nextCap) capHeight.value = nextCap;
-
-    // Use fixed height if provided, otherwise dynamic based on content or screen constraints
-    const desired = fixedHeight
-      ? Math.min(fixedHeight, capHeight.value)
-      : Math.min(contentHeight.value || capHeight.value, capHeight.value);
-
-    if (height.value !== desired) height.value = desired;
+    return Math.min(propMax, maxByScreen);
   });
 
-  // Handle sheet opening animation when transitioning from closed to open state
-  useDerivedValue(() => {
-    const wantsOpen = isOpenSV.value === 1 && phase.value === 0;
-    if (!wantsOpen) return;
+  // Use useAnimatedReaction to update height when dependencies change
+  // This replaces the side-effect-full useDerivedValue
+  useAnimatedReaction(
+    () => {
+      const cap = capHeight.get();
+      const content = contentHeight.get();
+      if (fixedHeight) {
+        return Math.min(fixedHeight, cap);
+      }
+      return Math.min(content || cap, cap);
+    },
+    (current, previous) => {
+      if (current !== previous && current > 0) {
+        height.set(current);
+      }
+    },
+    [fixedHeight]
+  );
 
-    const isDialogMode = presentationSV.value === 1;
-    const isSidebarMode = presentationSV.value === 2;
+  // Opening animation reaction - cleaner separation of concerns
+  useAnimatedReaction(
+    () => ({
+      wantsOpen: isOpenSV.get() === 1 && phase.get() === 0,
+      presentationMode: presentationSV.get(),
+      currentHeight: height.get(),
+      currentCap: capHeight.get(),
+    }),
+    (current, previous) => {
+      if (!current.wantsOpen) return;
+      if (previous?.wantsOpen) return; // Already handled
 
-    // In bottom sheet mode we need a valid start height before flipping phase
-    if (!isDialogMode && !isSidebarMode) {
-      const start = height.value > 0 ? height.value : capHeight.value;
-      if (start <= 0) return;
-    }
+      const isDialogMode = current.presentationMode === 1;
+      const isSidebarMode = current.presentationMode === 2;
 
-    // Initialize animation state
-    phase.value = 1; // Move to animating phase
-    containerOpacity.value = 0;
-    backdropOpacity.value = 0;
+      // Validate we have height for bottom sheet mode
+      if (!isDialogMode && !isSidebarMode) {
+        const start = current.currentHeight > 0 ? current.currentHeight : current.currentCap;
+        if (start <= 0) return;
+      }
 
-    // Mark status as opening
-    scheduleOnRN(setStatusOpening);
+      // Begin animation phase
+      phase.set(1);
+      containerOpacity.set(1); // Direct set - no withTiming needed for instant
 
-    // Set initial positions based on presentation mode
-    if (isDialogMode) {
-      offset.value = 0;
-      scale.value = 0.96; // Start slightly scaled down
-      sidebarOffsetX.value = 0;
-    } else if (isSidebarMode) {
-      // Sidebar starts off-screen based on position
-      const sidebarW = measuredSidebarWidth.value;
-      // For left sidebar: start at -width (off-screen left)
-      // For right sidebar: start at +width (off-screen right)
-      sidebarOffsetX.value = sidebarPosition === "left" ? -sidebarW : sidebarW;
-      offset.value = 0;
-      scale.value = 1;
-    } else {
-      const start = height.value > 0 ? height.value : capHeight.value;
-      offset.value = start; // Start below screen
-      scale.value = 1;
-      sidebarOffsetX.value = 0;
-    }
+      // Notify JS thread - single call at start
+      runOnJS(setStatusOpening)();
 
-    containerOpacity.value = withTiming(1, { duration: 0 }); // Immediate opacity
+      // Set initial positions and animate based on mode
+      if (isDialogMode) {
+        offset.set(0);
+        scale.set(0.96);
+        sidebarOffsetX.set(0);
+        backdropOpacity.set(withTiming(1, TIMING_BACKDROP_IN));
+        scale.set(
+          withSpring(1, SPRING_CONFIG_DIALOG, (finished) => {
+            if (finished) {
+              isFullOpened.set(true);
+              phase.set(2);
+              runOnJS(setStatusOpen)();
+            }
+          })
+        );
+      } else if (isSidebarMode) {
+        const sidebarW = measuredSidebarWidth.get();
+        sidebarOffsetX.set(sidebarPosition === "left" ? -sidebarW : sidebarW);
+        offset.set(0);
+        scale.set(1);
+        backdropOpacity.set(withTiming(1, TIMING_BACKDROP_IN));
+        sidebarOffsetX.set(
+          withSpring(0, SPRING_CONFIG_SIDEBAR, (finished) => {
+            if (finished) {
+              isFullOpened.set(true);
+              phase.set(2);
+              runOnJS(setStatusOpen)();
+            }
+          })
+        );
+      } else {
+        // Bottom sheet mode
+        const start = current.currentHeight > 0 ? current.currentHeight : current.currentCap;
+        offset.set(start);
+        scale.set(1);
+        sidebarOffsetX.set(0);
+        backdropOpacity.set(withTiming(1, TIMING_BACKDROP_IN));
+        offset.set(
+          withSpring(0, SPRING_CONFIG_BOTTOM_SHEET, (finished) => {
+            if (finished) {
+              isFullOpened.set(true);
+              phase.set(2);
+              runOnJS(setStatusOpen)();
+            }
+          })
+        );
+      }
+    },
+    [sidebarPosition, setStatusOpening, setStatusOpen]
+  );
 
-    // Callback to mark animation as complete
-    const onOpenAnimationComplete = () => {
-      scheduleOnRN(setStatusOpen);
-    };
-
-    // Animate to final position
-    if (isDialogMode) {
-      scale.value = withSpring(
-        1,
-        { stiffness: 700, damping: 70, mass: 2.2 }, // Smooth spring animation
-        (finished) => {
-          if (finished) {
-            isFullOpened.current = true;
-            phase.value = 2; // Move to fully opened phase
-            onOpenAnimationComplete();
-          }
-        },
-      );
-    } else if (isSidebarMode) {
-      // Animate sidebar sliding in horizontally
-      sidebarOffsetX.value = withSpring(
-        0,
-        { stiffness: 800, damping: 80, mass: 2 }, // Smooth horizontal slide
-        (finished) => {
-          if (finished) {
-            isFullOpened.current = true;
-            phase.value = 2; // Move to fully opened phase
-            onOpenAnimationComplete();
-          }
-        },
-      );
-    } else {
-      offset.value = withSpring(
-        0,
-        { stiffness: 900, damping: 90, mass: 4 }, // Stronger spring for bottom sheet
-        (finished) => {
-          if (finished) {
-            isFullOpened.current = true;
-            phase.value = 2; // Move to fully opened phase
-            onOpenAnimationComplete();
-          }
-        },
-      );
-    }
-    backdropOpacity.value = withTiming(1, { duration: 250 }); // Fade in backdrop
-  });
-
-  // Pan gesture for drag-to-close functionality (vertical - bottom sheet and dialog)
-  // Sidebar mode uses a separate horizontal gesture (sidebarPan)
+  // Vertical pan gesture for bottom sheet and dialog modes
   const isVerticalPanEnabled =
     presentationMode === "bottomSheet" ||
     (presentationMode === "dialog" && dialogDragToClose);
 
-  const pan = Gesture.Pan()
-    .enabled(isVerticalPanEnabled)
-    .onChange((event) => {
-      if (!isFullOpened.current) return; // Only respond when fully opened
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(isVerticalPanEnabled)
+        .onChange((event) => {
+          "worklet";
+          if (!isFullOpened.get()) return;
 
-      const offsetDelta = event.changeY + offset.value;
-      const clamp = Math.max(-OVERDRAG, offsetDelta); // Prevent excessive upward drag
-      const nextOffset = offsetDelta > 0 ? offsetDelta : clamp;
+          const currentOffset = offset.get();
+          const offsetDelta = event.changeY + currentOffset;
+          const clamp = Math.max(-OVERDRAG, offsetDelta);
 
-      // Apply resistance for upward drag, smooth for downward
-      offset.value = offsetDelta > 0 ? offsetDelta : withSpring(clamp);
+          // Direct interpolation - no withSpring in hot path
+          if (offsetDelta > 0) {
+            offset.set(offsetDelta);
+          } else {
+            // Resistance for upward drag - simple damping factor
+            offset.set(clamp * 0.8);
+          }
 
-      // Fade backdrop based on drag distance
-      const nextBackdrop = interpolate(
-        nextOffset,
-        [0, height.value],
-        [1, 0],
-        Extrapolation.CLAMP,
-      );
-      backdropOpacity.value = nextBackdrop;
-    })
-    .onFinalize(() => {
-      if (!isFullOpened.current) return;
+          // Update backdrop opacity
+          const h = height.get();
+          const nextBackdrop = interpolate(
+            offset.get(),
+            [0, h],
+            [1, 0],
+            Extrapolation.CLAMP
+          );
+          backdropOpacity.set(nextBackdrop);
+        })
+        .onFinalize(() => {
+          "worklet";
+          if (!isFullOpened.get()) return;
 
-      const range = height.value;
-      // Dynamic threshold: minimum 24px, maximum 80px, or 1/6 of sheet height
-      const threshold = Math.max(24, Math.min(80, range / 6));
+          const currentOffset = offset.get();
+          const range = height.get();
+          const threshold = Math.max(24, Math.min(80, range / 6));
 
-      if (offset.value < threshold) {
-        // Drag distance below threshold - snap back to open position
-        offset.value = withSpring(0, { damping: 15, mass: 0.9 });
-        backdropOpacity.value = withTiming(1, { duration: 150 });
-      } else {
-        // Drag distance above threshold - close the sheet
-        offset.value = withTiming(height.value, { duration: 200 }, () => {
-          scheduleOnRN(CloseSheet); // Schedule close on React Native thread
-        });
-        backdropOpacity.value = withTiming(0, { duration: 200 });
-      }
-    });
+          if (currentOffset < threshold) {
+            // Snap back
+            offset.set(withSpring(0, SPRING_CONFIG_SNAP_BACK));
+            backdropOpacity.set(withTiming(1, { duration: 150 }));
+          } else {
+            // Close
+            isClosing.set(true);
+            offset.set(
+              withTiming(range, TIMING_CLOSE, () => {
+                runOnJS(closeSheet)();
+              })
+            );
+            backdropOpacity.set(withTiming(0, TIMING_BACKDROP_OUT));
+          }
+        }),
+    [isVerticalPanEnabled, closeSheet]
+  );
 
-  // Horizontal pan gesture for sidebar drag-to-close functionality
-  const sidebarPan = Gesture.Pan()
-    .enabled(presentationMode === "sidebar" && sidebarDragToClose)
-    .onChange((event) => {
-      "worklet";
-      if (!isFullOpened.current) return; // Only respond when fully opened
+  // Horizontal pan gesture for sidebar mode
+  const sidebarPan = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(presentationMode === "sidebar" && sidebarDragToClose)
+        .onChange((event) => {
+          "worklet";
+          if (!isFullOpened.get()) return;
 
-      const isLeftSidebar = sidebarPosition === "left";
-      const dragX = event.changeX;
+          const isLeftSidebar = sidebarPosition === "left";
+          const dragX = event.changeX;
+          const currentOffset = sidebarOffsetX.get();
+          let newOffset = currentOffset + dragX;
 
-      // Calculate new offset
-      let newOffset = sidebarOffsetX.value + dragX;
+          // Apply resistance for overdrag
+          if (isLeftSidebar) {
+            if (newOffset > 0) {
+              newOffset = Math.min(SIDEBAR_OVERDRAG, newOffset * 0.3);
+            }
+          } else {
+            if (newOffset < 0) {
+              newOffset = Math.max(-SIDEBAR_OVERDRAG, newOffset * 0.3);
+            }
+          }
 
-      // For left sidebar: negative drag (left) closes, positive (right) is overdrag
-      // For right sidebar: positive drag (right) closes, negative (left) is overdrag
-      if (isLeftSidebar) {
-        // Left sidebar: can drag left to close, resist dragging right
-        if (newOffset > 0) {
-          // Overdrag to the right - apply resistance
-          newOffset = Math.min(SIDEBAR_OVERDRAG, newOffset * 0.3);
-        }
-        // No need to clamp negative values (closing direction)
-      } else {
-        // Right sidebar: can drag right to close, resist dragging left
-        if (newOffset < 0) {
-          // Overdrag to the left - apply resistance
-          newOffset = Math.max(-SIDEBAR_OVERDRAG, newOffset * 0.3);
-        }
-        // No need to clamp positive values (closing direction)
-      }
+          sidebarOffsetX.set(newOffset);
 
-      sidebarOffsetX.value = newOffset;
+          // Update backdrop
+          const sidebarW = measuredSidebarWidth.get();
+          const dragDistance = isLeftSidebar
+            ? Math.abs(Math.min(0, newOffset))
+            : Math.abs(Math.max(0, newOffset));
 
-      // Fade backdrop based on drag distance
-      const sidebarW = measuredSidebarWidth.value;
-      const dragDistance = isLeftSidebar
-        ? Math.abs(Math.min(0, newOffset)) // How far left we've dragged
-        : Math.abs(Math.max(0, newOffset)); // How far right we've dragged
+          const nextBackdrop = interpolate(
+            dragDistance,
+            [0, sidebarW],
+            [1, 0],
+            Extrapolation.CLAMP
+          );
+          backdropOpacity.set(nextBackdrop);
+        })
+        .onFinalize((event) => {
+          "worklet";
+          if (!isFullOpened.get()) return;
 
-      const nextBackdrop = interpolate(
-        dragDistance,
-        [0, sidebarW],
-        [1, 0],
-        Extrapolation.CLAMP,
-      );
-      backdropOpacity.value = nextBackdrop;
-    })
-    .onFinalize((event) => {
-      "worklet";
-      if (!isFullOpened.current) return;
+          const isLeftSidebar = sidebarPosition === "left";
+          const sidebarW = measuredSidebarWidth.get();
+          const threshold = Math.max(50, sidebarW / 4);
+          const velocityThreshold = 500;
+          const currentOffset = sidebarOffsetX.get();
 
-      const isLeftSidebar = sidebarPosition === "left";
-      const sidebarW = measuredSidebarWidth.value;
+          let shouldClose = false;
+          if (isLeftSidebar) {
+            shouldClose =
+              currentOffset < -threshold || event.velocityX < -velocityThreshold;
+          } else {
+            shouldClose =
+              currentOffset > threshold || event.velocityX > velocityThreshold;
+          }
 
-      // Calculate threshold for closing (1/4 of sidebar width or velocity-based)
-      const threshold = Math.max(50, sidebarW / 4);
-      const velocityThreshold = 500;
+          if (shouldClose) {
+            isClosing.set(true);
+            const closePosition = isLeftSidebar ? -sidebarW : sidebarW;
+            sidebarOffsetX.set(
+              withTiming(closePosition, TIMING_CLOSE, () => {
+                runOnJS(closeSheet)();
+              })
+            );
+            backdropOpacity.set(withTiming(0, TIMING_BACKDROP_OUT));
+          } else {
+            sidebarOffsetX.set(withSpring(0, SPRING_CONFIG_SNAP_BACK));
+            backdropOpacity.set(withTiming(1, { duration: 150 }));
+          }
+        }),
+    [presentationMode, sidebarDragToClose, sidebarPosition, closeSheet]
+  );
 
-      // Determine if we should close based on position or velocity
-      let shouldClose = false;
-
-      if (isLeftSidebar) {
-        // Left sidebar: close if dragged far enough left or fast enough left
-        shouldClose =
-          sidebarOffsetX.value < -threshold ||
-          event.velocityX < -velocityThreshold;
-      } else {
-        // Right sidebar: close if dragged far enough right or fast enough right
-        shouldClose =
-          sidebarOffsetX.value > threshold ||
-          event.velocityX > velocityThreshold;
-      }
-
-      if (shouldClose) {
-        // Close the sidebar
-        const closePosition = isLeftSidebar ? -sidebarW : sidebarW;
-        sidebarOffsetX.value = withTiming(
-          closePosition,
-          { duration: 200 },
-          () => {
-            scheduleOnRN(CloseSheet);
-          },
-        );
-        backdropOpacity.value = withTiming(0, { duration: 200 });
-      } else {
-        // Snap back to open position
-        sidebarOffsetX.value = withSpring(0, { damping: 20, stiffness: 300 });
-        backdropOpacity.value = withTiming(1, { duration: 150 });
-      }
-    });
-
-  // Animated styles for sheet positioning and appearance (vertical modes)
+  // Animated styles - optimized with minimal calculations
   const translateY = useAnimatedStyle(() => {
-    const k = avoidKeyboard ? keyboard.height.value : 0;
-    const tY = offset.value - k; // Adjust for keyboard when avoiding
+    const k = avoidKeyboard ? keyboard.height.get() : 0;
     return {
-      transform: [{ translateY: tY }, { scale: scale.value }],
-      opacity: containerOpacity.value,
+      transform: [{ translateY: offset.get() - k }, { scale: scale.get() }],
+      opacity: containerOpacity.get(),
     };
   });
 
-  // Animated styles for sidebar (horizontal mode)
-  const sidebarAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateX: sidebarOffsetX.value }],
-      opacity: containerOpacity.value,
-    };
-  });
-
-  const backdropOpacityStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
+  const sidebarAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sidebarOffsetX.get() }],
+    opacity: containerOpacity.get(),
   }));
 
-  // Handle layout changes to measure content height for dynamic sizing
-  const onLayoutHandler = (e: LayoutChangeEvent) => {
-    if (fixedHeight) return; // Skip measurement for fixed height sheets
-    contentHeight.value = e.nativeEvent.layout.height;
-  };
+  const backdropOpacityStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity.get(),
+  }));
 
-  // Handle layout changes to measure sidebar width for animations
-  const onSidebarLayoutHandler = (e: LayoutChangeEvent) => {
-    const measuredWidth = e.nativeEvent.layout.width;
-    // Only update if we don't have a fixed width and measured width is valid
-    if (!sidebarWidth && measuredWidth > 0) {
-      measuredSidebarWidth.value = measuredWidth;
-    }
-  };
+  // Layout handlers
+  const onLayoutHandler = useCallback(
+    (e: LayoutChangeEvent) => {
+      if (fixedHeight) return;
+      contentHeight.set(e.nativeEvent.layout.height);
+    },
+    [fixedHeight, contentHeight]
+  );
 
-  // Exit animation for backdrop
-  const backdropExiting = () => {
+  const onSidebarLayoutHandler = useCallback(
+    (e: LayoutChangeEvent) => {
+      const measuredWidth = e.nativeEvent.layout.width;
+      if (!sidebarWidth && measuredWidth > 0) {
+        measuredSidebarWidth.set(measuredWidth);
+      }
+    },
+    [sidebarWidth, measuredSidebarWidth]
+  );
+
+  // Exit animations - simplified and optimized
+  const backdropExiting = useCallback(() => {
     "worklet";
-    const animations = {
-      opacity: withTiming(0, { duration: 250 }, () => {
-        backdropOpacity.value = 0;
-      }),
+    return {
+      initialValues: { opacity: backdropOpacity.get() },
+      animations: {
+        opacity: withTiming(0, TIMING_BACKDROP_OUT, () => {
+          backdropOpacity.set(0);
+        }),
+      },
     };
-    const initialValues = { opacity: backdropOpacity.value };
-    return { initialValues, animations };
-  };
+  }, []);
 
-  // Exit animation for sheet based on presentation mode
-  const sheetExiting = () => {
+  const sheetExiting = useCallback(() => {
     "worklet";
-    const isDialogMode = presentationSV.value === 1;
-    const start = offset.value;
-    const exitTo = height.value;
-    const needsMove = Math.abs(exitTo - start) > 0.5; // Only animate if significant movement needed
+    const isDialogMode = presentationSV.get() === 1;
+    const start = offset.get();
+    const exitTo = height.get();
+    const needsMove = Math.abs(exitTo - start) > 0.5;
 
     const animations = isDialogMode
       ? {
-          // Dialog mode: fade out and scale down slightly
           transform: [
-            {
-              translateY: withTiming(exitTo, { duration: needsMove ? 200 : 0 }),
-            },
-            { scale: withTiming(0.96, { duration: 200 }) },
+            { translateY: withTiming(exitTo, { duration: needsMove ? 180 : 0 }) },
+            { scale: withTiming(0.96, { duration: 180 }) },
           ],
-          opacity: withTiming(0, { duration: 200 }),
+          opacity: withTiming(0, { duration: 180 }),
         }
       : {
-          // Bottom sheet mode: slide down and maintain scale
           transform: [
-            {
-              translateY: withTiming(exitTo, { duration: needsMove ? 250 : 0 }),
-            },
+            { translateY: withTiming(exitTo, { duration: needsMove ? 200 : 0 }) },
             { scale: withTiming(1, { duration: 0 }) },
           ],
           opacity: withTiming(1),
         };
 
     const initialValues = {
-      transform: [{ translateY: start }, { scale: scale.value }],
-      opacity: containerOpacity.value,
+      transform: [{ translateY: start }, { scale: scale.get() }],
+      opacity: containerOpacity.get(),
     };
 
-    // Reset all animation values after exit animation completes
     const callback = () => {
-      isFullOpened.current = false;
-      phase.value = 0; // Return to closed phase
-      offset.value = 0;
-      scale.value = 1;
-      height.value = fixedHeight || 0;
-      backdropOpacity.value = 0;
-      containerOpacity.value = 0;
-      sidebarOffsetX.value = 0;
-      scheduleOnRN(setStatusClosed);
+      "worklet";
+      isFullOpened.set(false);
+      phase.set(0);
+      offset.set(0);
+      scale.set(1);
+      height.set(fixedHeight || 0);
+      backdropOpacity.set(0);
+      containerOpacity.set(0);
+      sidebarOffsetX.set(0);
+      runOnJS(setStatusClosed)();
     };
 
     return { initialValues, animations, callback };
-  };
+  }, [fixedHeight, setStatusClosed]);
 
-  // Exit animation for sidebar mode (horizontal slide out)
-  const sidebarExiting = () => {
+  const sidebarExiting = useCallback(() => {
     "worklet";
     const isLeftSidebar = sidebarPosition === "left";
-    const sidebarW = measuredSidebarWidth.value;
-    const start = sidebarOffsetX.value;
+    const sidebarW = measuredSidebarWidth.get();
+    const start = sidebarOffsetX.get();
     const exitTo = isLeftSidebar ? -sidebarW : sidebarW;
     const needsMove = Math.abs(exitTo - start) > 0.5;
 
-    const animations = {
-      transform: [
-        {
-          translateX: withTiming(exitTo, { duration: needsMove ? 250 : 0 }),
-        },
-      ],
-      opacity: withTiming(1), // Keep opacity while sliding out
+    return {
+      initialValues: {
+        transform: [{ translateX: start }],
+        opacity: containerOpacity.get(),
+      },
+      animations: {
+        transform: [
+          { translateX: withTiming(exitTo, { duration: needsMove ? 200 : 0 }) },
+        ],
+        opacity: withTiming(1),
+      },
+      callback: () => {
+        "worklet";
+        isFullOpened.set(false);
+        phase.set(0);
+        offset.set(0);
+        scale.set(1);
+        height.set(fixedHeight || 0);
+        backdropOpacity.set(0);
+        containerOpacity.set(0);
+        sidebarOffsetX.set(0);
+        runOnJS(setStatusClosed)();
+      },
     };
+  }, [sidebarPosition, fixedHeight, setStatusClosed]);
 
-    const initialValues = {
-      transform: [{ translateX: start }],
-      opacity: containerOpacity.value,
-    };
-
-    // Reset all animation values after exit animation completes
-    const callback = () => {
-      isFullOpened.current = false;
-      phase.value = 0; // Return to closed phase
-      offset.value = 0;
-      scale.value = 1;
-      height.value = fixedHeight || 0;
-      backdropOpacity.value = 0;
-      containerOpacity.value = 0;
-      sidebarOffsetX.value = 0;
-      scheduleOnRN(setStatusClosed);
-    };
-
-    return { initialValues, animations, callback };
-  };
-
-  // Sync open state with shared value and reset closing flag when opened
+  // Sync open state
   useEffect(() => {
-    isOpenSV.value = bottomSheetInstance?.isOpen ? 1 : 0;
+    isOpenSV.set(bottomSheetInstance?.isOpen ? 1 : 0);
     if (bottomSheetInstance?.isOpen) {
-      isClosing.value = false; // Reset closing state when opening
+      isClosing.set(false);
     }
   }, [bottomSheetInstance?.isOpen, isOpenSV, isClosing]);
 
-  // Update presentation mode shared value when device mode changes
+  // Update presentation mode
   useEffect(() => {
     if (presentationMode === "dialog") {
-      presentationSV.value = 1;
+      presentationSV.set(1);
     } else if (presentationMode === "sidebar") {
-      presentationSV.value = 2;
+      presentationSV.set(2);
     } else {
-      presentationSV.value = 0;
+      presentationSV.set(0);
     }
   }, [presentationMode, presentationSV]);
 
-  // Validate style overrides for debugging
+  // Validate style overrides (dev only)
   useEffect(() => {
     validateStyleOverrides(stylesOverride, "AdaptiveBottomSheet");
   }, [stylesOverride]);
 
-  // Shared content for dialog and bottom sheet modes
-  const sheetContent = (
-    <>
-      <GestureDetector gesture={pan}>
-        <View style={[base.header, stylesOverride?.header]}>
-          {headerComponent}
-          {!hideCloseButton && (
-            <TouchableOpacity
-              {...closeButtonProps}
-              style={[base.closeButton, stylesOverride?.closeButton]}
-              onPress={CloseSheet}
-            >
-              {renderCloseIcon ? (
-                renderCloseIcon({ isDark: darkMode })
-              ) : (
-                <Close theme={{ isDark: darkMode }} />
-              )}
-            </TouchableOpacity>
+  // Memoized content components to prevent unnecessary re-renders
+  const closeButton = useMemo(
+    () =>
+      !hideCloseButton && (
+        <TouchableOpacity
+          {...closeButtonProps}
+          style={[base.closeButton, stylesOverride?.closeButton]}
+          onPress={closeSheet}
+        >
+          {renderCloseIcon ? (
+            renderCloseIcon({ isDark: darkMode })
+          ) : (
+            <Close theme={{ isDark: darkMode }} />
           )}
-        </View>
-      </GestureDetector>
-      <View style={[base.content, stylesOverride?.content]}>{children}</View>
-    </>
+        </TouchableOpacity>
+      ),
+    [
+      hideCloseButton,
+      closeButtonProps,
+      base.closeButton,
+      stylesOverride?.closeButton,
+      closeSheet,
+      renderCloseIcon,
+      darkMode,
+    ]
   );
 
-  // Sidebar-specific content with horizontal gesture
-  const sidebarContent = (
-    <>
-      <GestureDetector gesture={sidebarPan}>
-        <View style={[base.sidebarHeader, stylesOverride?.header]}>
-          {headerComponent}
-          {!hideCloseButton && (
-            <TouchableOpacity
-              {...closeButtonProps}
-              style={[base.closeButton, stylesOverride?.closeButton]}
-              onPress={CloseSheet}
-            >
-              {renderCloseIcon ? (
-                renderCloseIcon({ isDark: darkMode })
-              ) : (
-                <Close theme={{ isDark: darkMode }} />
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
-      </GestureDetector>
-      <View style={[base.sidebarContent, stylesOverride?.content]}>
-        {children}
-      </View>
-    </>
+  const sheetContent = useMemo(
+    () => (
+      <>
+        <GestureDetector gesture={pan}>
+          <View style={[base.header, stylesOverride?.header]}>
+            {headerComponent}
+            {closeButton}
+          </View>
+        </GestureDetector>
+        <View style={[base.content, stylesOverride?.content]}>{children}</View>
+      </>
+    ),
+    [pan, base.header, base.content, stylesOverride?.header, stylesOverride?.content, headerComponent, closeButton, children]
   );
 
-  // Render the appropriate mode
-  const renderSheetContent = () => {
+  const sidebarContent = useMemo(
+    () => (
+      <>
+        <GestureDetector gesture={sidebarPan}>
+          <View style={[base.sidebarHeader, stylesOverride?.header]}>
+            {headerComponent}
+            {closeButton}
+          </View>
+        </GestureDetector>
+        <View style={[base.sidebarContent, stylesOverride?.content]}>
+          {children}
+        </View>
+      </>
+    ),
+    [sidebarPan, base.sidebarHeader, base.sidebarContent, stylesOverride?.header, stylesOverride?.content, headerComponent, closeButton, children]
+  );
+
+  // Render functions
+  const renderSheetContent = useCallback(() => {
     if (presentationMode === "sidebar") {
       return (
         <View
@@ -587,11 +605,7 @@ function BottomSheet(props: BottomSheetProps) {
           pointerEvents="box-none"
         >
           <Animated.View
-            style={[
-              base.sidebarSheet,
-              sidebarAnimatedStyle,
-              stylesOverride?.sheet,
-            ]}
+            style={[base.sidebarSheet, sidebarAnimatedStyle, stylesOverride?.sheet]}
             exiting={sidebarExiting}
             onLayout={onSidebarLayoutHandler}
           >
@@ -615,7 +629,6 @@ function BottomSheet(props: BottomSheetProps) {
       );
     }
 
-    // Default: bottom sheet mode
     return (
       <Animated.View
         style={[base.sheet, translateY, stylesOverride?.sheet]}
@@ -625,25 +638,33 @@ function BottomSheet(props: BottomSheetProps) {
         {sheetContent}
       </Animated.View>
     );
-  };
+  }, [
+    presentationMode,
+    base,
+    stylesOverride,
+    sidebarAnimatedStyle,
+    sidebarExiting,
+    onSidebarLayoutHandler,
+    sidebarContent,
+    translateY,
+    sheetExiting,
+    onLayoutHandler,
+    sheetContent,
+  ]);
+
+  if (!bottomSheetInstance?.isOpen) {
+    return null;
+  }
 
   return (
-    <>
-      {bottomSheetInstance?.isOpen && (
-        <Portal name={bottomSheetInstance.instanceID}>
-          <AnimatedPressable
-            style={[
-              base.backdrop,
-              backdropOpacityStyle,
-              stylesOverride?.backdrop,
-            ]}
-            onPress={disableBackdropDismiss ? undefined : CloseSheet}
-            exiting={backdropExiting}
-          />
-          {renderSheetContent()}
-        </Portal>
-      )}
-    </>
+    <Portal name={bottomSheetInstance.instanceID}>
+      <AnimatedPressable
+        style={[base.backdrop, backdropOpacityStyle, stylesOverride?.backdrop]}
+        onPress={disableBackdropDismiss ? undefined : closeSheet}
+        exiting={backdropExiting}
+      />
+      {renderSheetContent()}
+    </Portal>
   );
 }
 
