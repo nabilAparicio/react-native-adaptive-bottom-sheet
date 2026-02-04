@@ -112,6 +112,11 @@ function BottomSheet(props: BottomSheetProps) {
     bottomSheetInstance.closeSheet(onDismiss);
   };
 
+  // Status update callbacks - defined in JS scope for use with scheduleOnRN
+  const setStatusOpening = () => bottomSheetInstance.setStatus("opening");
+  const setStatusOpen = () => bottomSheetInstance.setStatus("open");
+  const setStatusClosed = () => bottomSheetInstance.setStatus("closed");
+
   // Calculate and update sheet height constraints
   useDerivedValue(() => {
     const safeTop = disableSafeArea ? 0 : insets.top;
@@ -149,9 +154,7 @@ function BottomSheet(props: BottomSheetProps) {
     backdropOpacity.value = 0;
 
     // Mark status as opening
-    scheduleOnRN(() => {
-      bottomSheetInstance.setStatus("opening");
-    });
+    scheduleOnRN(setStatusOpening);
 
     // Set initial positions based on presentation mode
     if (isDialogMode) {
@@ -177,9 +180,7 @@ function BottomSheet(props: BottomSheetProps) {
 
     // Callback to mark animation as complete
     const onOpenAnimationComplete = () => {
-      scheduleOnRN(() => {
-        bottomSheetInstance.setStatus("open");
-      });
+      scheduleOnRN(setStatusOpen);
     };
 
     // Animate to final position
@@ -456,9 +457,7 @@ function BottomSheet(props: BottomSheetProps) {
       backdropOpacity.value = 0;
       containerOpacity.value = 0;
       sidebarOffsetX.value = 0;
-      scheduleOnRN(() => {
-        bottomSheetInstance.setStatus("closed");
-      });
+      scheduleOnRN(setStatusClosed);
     };
 
     return { initialValues, animations, callback };
@@ -497,9 +496,7 @@ function BottomSheet(props: BottomSheetProps) {
       backdropOpacity.value = 0;
       containerOpacity.value = 0;
       sidebarOffsetX.value = 0;
-      scheduleOnRN(() => {
-        bottomSheetInstance.setStatus("closed");
-      });
+      scheduleOnRN(setStatusClosed);
     };
 
     return { initialValues, animations, callback };
