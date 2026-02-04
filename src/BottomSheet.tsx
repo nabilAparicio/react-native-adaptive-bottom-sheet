@@ -108,6 +108,7 @@ function BottomSheet(props: BottomSheetProps) {
   // Closes the bottom sheet with animation
   const CloseSheet = () => {
     isClosing.value = true;
+    bottomSheetInstance.setStatus("closing");
     bottomSheetInstance.closeSheet(onDismiss);
   };
 
@@ -147,6 +148,11 @@ function BottomSheet(props: BottomSheetProps) {
     containerOpacity.value = 0;
     backdropOpacity.value = 0;
 
+    // Mark status as opening
+    scheduleOnRN(() => {
+      bottomSheetInstance.setStatus("opening");
+    });
+
     // Set initial positions based on presentation mode
     if (isDialogMode) {
       offset.value = 0;
@@ -169,6 +175,13 @@ function BottomSheet(props: BottomSheetProps) {
 
     containerOpacity.value = withTiming(1, { duration: 0 }); // Immediate opacity
 
+    // Callback to mark animation as complete
+    const onOpenAnimationComplete = () => {
+      scheduleOnRN(() => {
+        bottomSheetInstance.setStatus("open");
+      });
+    };
+
     // Animate to final position
     if (isDialogMode) {
       scale.value = withSpring(
@@ -178,8 +191,9 @@ function BottomSheet(props: BottomSheetProps) {
           if (finished) {
             isFullOpened.current = true;
             phase.value = 2; // Move to fully opened phase
+            onOpenAnimationComplete();
           }
-        }
+        },
       );
     } else if (isSidebarMode) {
       // Animate sidebar sliding in horizontally
@@ -190,8 +204,9 @@ function BottomSheet(props: BottomSheetProps) {
           if (finished) {
             isFullOpened.current = true;
             phase.value = 2; // Move to fully opened phase
+            onOpenAnimationComplete();
           }
-        }
+        },
       );
     } else {
       offset.value = withSpring(
@@ -201,8 +216,9 @@ function BottomSheet(props: BottomSheetProps) {
           if (finished) {
             isFullOpened.current = true;
             phase.value = 2; // Move to fully opened phase
+            onOpenAnimationComplete();
           }
-        }
+        },
       );
     }
     backdropOpacity.value = withTiming(1, { duration: 250 }); // Fade in backdrop
@@ -231,7 +247,7 @@ function BottomSheet(props: BottomSheetProps) {
         nextOffset,
         [0, height.value],
         [1, 0],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       );
       backdropOpacity.value = nextBackdrop;
     })
@@ -298,7 +314,7 @@ function BottomSheet(props: BottomSheetProps) {
         dragDistance,
         [0, sidebarW],
         [1, 0],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       );
       backdropOpacity.value = nextBackdrop;
     })
@@ -336,7 +352,7 @@ function BottomSheet(props: BottomSheetProps) {
           { duration: 200 },
           () => {
             scheduleOnRN(CloseSheet);
-          }
+          },
         );
         backdropOpacity.value = withTiming(0, { duration: 200 });
       } else {
@@ -440,6 +456,9 @@ function BottomSheet(props: BottomSheetProps) {
       backdropOpacity.value = 0;
       containerOpacity.value = 0;
       sidebarOffsetX.value = 0;
+      scheduleOnRN(() => {
+        bottomSheetInstance.setStatus("closed");
+      });
     };
 
     return { initialValues, animations, callback };
@@ -478,6 +497,9 @@ function BottomSheet(props: BottomSheetProps) {
       backdropOpacity.value = 0;
       containerOpacity.value = 0;
       sidebarOffsetX.value = 0;
+      scheduleOnRN(() => {
+        bottomSheetInstance.setStatus("closed");
+      });
     };
 
     return { initialValues, animations, callback };
